@@ -4,8 +4,6 @@ from typing import Optional, Tuple, Union, List
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from PIL import Image
-
 from transformers import (
     PreTrainedModel,
     CLIPSegProcessor,
@@ -37,55 +35,31 @@ class ClipSegMultiClassModel(PreTrainedModel):
         self.clipseg = CLIPSegForImageSegmentation.from_pretrained(config.model)
         self.loss_fct = nn.CrossEntropyLoss()
 
-    def _prepare_inputs(self, images: List[Image.Image]):
-        prompts = self.class_labels * len(images)
-        expanded_images = [img for img in images for _ in self.class_labels]
-
-        inputs = self.processor(
-            images=expanded_images,
-            text=prompts,
-            return_tensors="pt",
-            padding=True,
-            truncation=True
-        )
-
-        return inputs
-
     def forward(
         self,
-        images: Union[Image.Image, List[Image.Image]] = None,
         pixel_values: Optional[torch.Tensor] = None,
+        input_ids: Optional[torch.Tensor] = None,
         labels: Optional[torch.Tensor] = None,
         **kwargs
-) ->     ClipSegMultiClassOutput:
+    ) -> ClipSegMultiClassOutput:
 
-        if isinstance(images, Image.Image):
-            images = [images]
+        if pixel_values is None or input_ids is None:
+            raise ValueError("Both `pixel_values` and `input_ids` must be provided.")
 
-        device = self.device
-
-        if images is not None:
-            inputs = self._prepare_inputs(images)
-            pixel_values = inputs["pixel_values"].to(device)
-            input_ids = inputs["input_ids"].to(device)
-        else:
-            raise ValueError("`images` must be provided for CLIPSeg.")
+        pixel_values = pixel_values.to(self.device)
+        input_ids = input_ids.to(self.device)
 
         outputs = self.clipseg(pixel_values=pixel_values, input_ids=input_ids)
-        raw_logits = outputs.logits
+        raw_logits = outputs.logits  # shape: [B * C, H, W]
 
-        B = len(images)
-        C = len(self.class_labels)
+        B = raw_logits.shape[0] // self.num_classes
+        C = self.num_classes
         H, W = raw_logits.shape[-2:]
-        logits = raw_logits.view(B, C, H, W)
 
-        probs = logits
+        logits = raw_logits.view(B, C, H, W)  # [B, C, H, W]
+        pred = torch.argmax(logits, dim=1)   # [B, H, W]
 
-        pred = torch.argmax(probs, dim=1)
-
-        loss = None
-        if labels is not None:
-            loss = self.loss_fct(logits, labels.long())
+        loss = self.loss_fct(logits, labels.long()) if labels is not None else None
 
         return ClipSegMultiClassOutput(
             loss=loss,
@@ -94,7 +68,21 @@ class ClipSegMultiClassModel(PreTrainedModel):
         )
 
     @torch.no_grad()
-    def predict(self, images: Union[Image.Image, List[Image.Image]]) -> torch.Tensor:
+    def predict(self, images: Union[List, "PIL.Image.Image"]) -> torch.Tensor:
         self.eval()
-        output = self.forward(images=images)
+        if isinstance(images, Image.Image):
+            images = [images]
+
+        inputs = self.processor(
+            images=[img for img in images for _ in self.class_labels],
+            text=self.class_labels * len(images),
+            return_tensors="pt",
+            padding=True,
+            truncation=True
+        ).to(self.device)
+
+        output = self.forward(
+            pixel_values=inputs["pixel_values"],
+            input_ids=inputs["input_ids"]
+        )
         return output.predictions
