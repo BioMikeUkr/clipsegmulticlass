@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from typing import Optional, Tuple, Union, List
-
+from PIL import Image
+import PIL
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
