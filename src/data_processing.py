@@ -18,7 +18,7 @@ class SingleClassSegmentationDataset(Dataset):
     def __getitem__(self, idx):
         item = self.items[idx]
 
-        image = Image.open(item["image_path"]).convert("RGB")
+        image = Image.open(item["img_path"]).convert("RGB")
         mask = Image.open(item["mask_path"]).convert("L")
         class_name = item["label"]
 
