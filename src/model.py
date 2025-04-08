@@ -13,6 +13,31 @@ from transformers import (
 from transformers.modeling_outputs import ModelOutput
 
 from .config import ClipSegMultiClassConfig
+from sklearn.metrics import precision_score, recall_score, f1_score, accuracy_score
+import numpy as np
+from torch.utils.data import DataLoader
+from collections import defaultdict
+
+def flatten_outputs(preds, targets, num_classes):
+    """Flatten predictions and targets to 1D arrays, filter ignored labels."""
+    preds = preds.cpu().numpy().reshape(-1)
+    targets = targets.cpu().numpy().reshape(-1)
+
+    mask = (targets >= 0) & (targets < num_classes)
+    return preds[mask], targets[mask]
+
+def compute_metrics(all_preds, all_targets, num_classes, average="macro"):
+    y_pred = np.concatenate(all_preds)
+    y_true = np.concatenate(all_targets)
+
+    metrics = {
+        "accuracy": accuracy_score(y_true, y_pred),
+        "precision": precision_score(y_true, y_pred, average=average, zero_division=0),
+        "recall": recall_score(y_true, y_pred, average=average, zero_division=0),
+        "f1": f1_score(y_true, y_pred, average=average, zero_division=0),
+    }
+
+    return metrics
 
 
 @dataclass
@@ -87,3 +112,43 @@ class ClipSegMultiClassModel(PreTrainedModel):
             input_ids=inputs["input_ids"]
         )
         return output.predictions
+
+    def evaluate(self, dataloader: torch.utils.data.DataLoader) -> dict:
+        from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
+        import numpy as np
+
+        self.eval()
+
+        all_preds = []
+        all_targets = []
+
+        with torch.no_grad():
+            for batch in dataloader:
+                pixel_values = batch["pixel_values"].to(self.device)     # [B * C, 3, H, W]
+                input_ids = batch["input_ids"].to(self.device)           # [B * C, T]
+                labels = batch["labels"].to(self.device)                 # [B, H, W]
+
+                outputs = self.forward(pixel_values=pixel_values, input_ids=input_ids)
+                preds = outputs.predictions  # [B, H, W]
+
+                for pred, label in zip(preds, labels):
+                    pred = pred.cpu().flatten()
+                    label = label.cpu().flatten()
+
+                    mask = label != 0
+                    pred = pred[mask]
+                    label = label[mask]
+
+                    all_preds.append(pred)
+                    all_targets.append(label)
+
+        y_pred = torch.cat(all_preds).numpy()
+        y_true = torch.cat(all_targets).numpy()
+
+        return {
+            "accuracy": accuracy_score(y_true, y_pred),
+            "precision": precision_score(y_true, y_pred, average="macro", zero_division=0),
+            "recall": recall_score(y_true, y_pred, average="macro", zero_division=0),
+            "f1": f1_score(y_true, y_pred, average="macro", zero_division=0),
+        }
+
