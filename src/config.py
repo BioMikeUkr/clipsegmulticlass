@@ -18,11 +18,16 @@ class ClipSegMultiClassConfig(PretrainedConfig):
         super().__init__(**kwargs)
 
         self.class_labels = class_labels or []
+        self.num_classes = len(self.class_labels)
+
         self.label2color = label2color or {
-            i: [int(255 * (i / max(1, len(class_labels) - 1))), 0, 255 - int(255 * (i / max(1, len(class_labels) - 1)))]
-            for i in range(len(class_labels))
+            i: [
+                int(255 * (i / max(1, self.num_classes - 1))),
+                0,
+                255 - int(255 * (i / max(1, self.num_classes - 1)))
+            ]
+            for i in range(self.num_classes)
         }
 
-        self.num_classes = len(self.class_labels) 
         self.model = model
         self.image_size = image_size
