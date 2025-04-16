@@ -10,6 +10,10 @@ Built on top of [CIDAS/clipseg-rd64-refined](https://huggingface.co/CIDAS/clipse
 **Input:** RGB image + list of class prompts  
 **Output:** Segmentation map with one class label per pixel
 
+## TODO:
+1. Error analysis
+2. Try to find tricks to improve the model 
+
 ### 🏷️ Supported classes
 - Pig
 - Horse
